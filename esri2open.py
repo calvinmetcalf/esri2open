@@ -55,6 +55,22 @@ def parseProp(row,fields, shp):
             if value != "":
                 out[field]=value
     return out
+def parseFieldType(name, esriType):
+    if esriType.lower() in ("text","string","date"):
+        return name+" text"
+    elif esriType.lower() in ("short","long"):
+        return name+" integer"
+    elif esriType.lower() in ("float","single","double"):
+        return name+" real"
+    else:
+        return name+" blob"
+def makeInter(n):
+    out = []
+    i = 0
+    while i<n:
+        i+=1
+        out.append("?")
+    return ",".join(out)
 def parseLineGeom(line):
     out=[]
     lineCount=line.count
@@ -256,14 +272,14 @@ def prepareSqlite(out,featureClass,fileType,includeGeometry):
     fieldNames = []
     for field in fields:
         if (fields[field] != u'OID') and field.lower() not in ('shape_length','shape_area','shape.len','shape.length','shape_len','shape.area',shp.lower()):
-            fieldNames.append(field)
+            fieldNames.append(parseFieldType(field,fields[field]))
     if includeGeometry:
-        fieldNames.append("GEOMETRY")
+        fieldNames.append("GEOMETRY blob")
     conn=Connection(out.name)
     c=conn.cursor()
     name = path.splitext(path.split(out.name)[1])[0]
-    c.execute("create table ?(?)",(name,", ".join(fieldNames)))
-    return [[conn,c],[name,c]]
+    c.execute("create table {0}({1})".format(name,", ".join(fieldNames)))
+    return [[conn,c],[name,c,conn]]
 def prepareFile(out,featureClass,fileType,includeGeometry):
     if fileType=="geojson":
         return [out,prepareGeoJson(out)]
@@ -340,12 +356,14 @@ def writeFile(outFile,featureClass,fileType,includeGeometry, first=True):
                 if includeGeometry:
                     fc["properties"]["GEOMETRY"]=makeWKB(fc["geometry"])
                     keys = fc["properties"].keys()
-                    [name,c]=outFile
-                    c.execute("""insert into ?(?)
-                    values(?)
-                    """,name,", ".join(keys),", ".join(keys))
+                    values = fc["properties"].values()
+                    [name,c,conn]=outFile
+                    c.execute("""insert into {0}({1})
+                    values({2})
+                    """.format(name,", ".join(keys),makeInter(len(values))),values)
+                    conn.commit()
     except Exception as e:
-        print("OH SNAP! " + str(e))
+        AddMessage("OH SNAP! " + str(e))
     finally:
         del row
         del rows
