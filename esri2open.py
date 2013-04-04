@@ -14,6 +14,9 @@
 from arcpy import ListFields,Describe, SetProgressorLabel,SetProgressorPosition,GetCount_management,SetProgressor,AddMessage,SpatialReference,SearchCursor
 from csv import DictWriter
 from json import dump
+from sqlite3 import Connection
+from os import path
+from wkb import makeWKB
 #uncomment the following line and comment the final line to use in the console
 #arcpy.env.workspace = os.getcwd()
 wgs84="GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]];-400 -400 1000000000;-100000 10000;-100000 10000;8.98315284119522E-09;0.001;0.001;IsHighPrecision"
@@ -247,17 +250,37 @@ def prepareCsv(out,featureClass,fileType,includeGeometry):
         fieldObject[fieldName]=fieldName
     outCSV.writerow(fieldObject)
     return outCSV
+def prepareSqlite(out,featureClass,fileType,includeGeometry):
+    shp=getShp(featureClass)[0]
+    fields=listFields(featureClass)
+    fieldNames = []
+    for field in fields:
+        if (fields[field] != u'OID') and field.lower() not in ('shape_length','shape_area','shape.len','shape.length','shape_len','shape.area',shp.lower()):
+            fieldNames.append(field)
+    if includeGeometry:
+        fieldNames.append("GEOMETRY")
+    conn=Connection(out.name)
+    c=conn.cursor()
+    name = path.splitext(path.split(out.name)[1])[0]
+    c.execute("create table ?(?)",(name,", ".join(fieldNames)))
+    return [[conn,c],[name,c]]
 def prepareFile(out,featureClass,fileType,includeGeometry):
     if fileType=="geojson":
-        return prepareGeoJson(out)
+        return [out,prepareGeoJson(out)]
     elif fileType=="csv":
-        return prepareCsv(out,featureClass,fileType,includeGeometry)
+        return [out,prepareCsv(out,featureClass,fileType,includeGeometry)]
     elif fileType=="json":
-        return prepareJson(out)
+        return [out,prepareJson(out)]
+    elif fileType=="sqlite":
+        return prepareSqlite(out,featureClass,fileType,includeGeometry)
 def closeUp(out,fileType):
     if fileType=="geojson" or fileType=="json":
             out.write("""]}""")
-    out.close()
+    if fileType=="sqlite":
+        out[0].commit()
+        out[1].close()
+    else:
+        out.close()
 def writeFile(outFile,featureClass,fileType,includeGeometry, first=True):
     [shp,shpType]=getShp(featureClass)
     fields=listFields(featureClass)
@@ -313,6 +336,14 @@ def writeFile(outFile,featureClass,fileType,includeGeometry, first=True):
                 else:
                     outFile.write(",")
                     dump(fc["properties"],outFile)
+            elif fileType=="sqlite":
+                if includeGeometry:
+                    fc["properties"]["GEOMETRY"]=makeWKB(fc["geometry"])
+                    keys = fc["properties"].keys()
+                    [name,c]=outFile
+                    c.execute("""insert into ?(?)
+                    values(?)
+                    """,name,", ".join(keys),", ".join(keys))
     except Exception as e:
         print("OH SNAP! " + str(e))
     finally:
@@ -330,9 +361,10 @@ def toOpen(featureClass, outJSON, includeGeometry="true"):
         fileType = "json"
     elif outJSON[-4:].lower()==".csv":
         fileType = "csv"
+    elif outJSON[-7:].lower()==".sqlite":
+        fileType = "sqlite"
     if outJSON[-len(fileType)-1:]!="."+fileType:
         outJSON = outJSON+"."+fileType
-    out=open(outJSON,"wb")
-    outFile=prepareFile(out,featureClass,fileType,includeGeometry)
+    [out,outFile]=prepareFile(open(outJSON,"wb"),featureClass,fileType,includeGeometry)
     writeFile(outFile,featureClass,fileType,includeGeometry)
     closeUp(out,fileType)
