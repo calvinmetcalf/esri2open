@@ -1,5 +1,5 @@
 from struct import pack
-
+from sqlite3 import Binary
 def linearRing(coordinates):
     values =[0]
     outnum = "I"
@@ -88,4 +88,4 @@ def makeWKB(geometry):
     [ptrn,coords]=parseGeo(geometry)
     values[0]=values[0]+ptrn
     values.extend(coords)
-    return pack(*values)
+    return Binary(pack(*values))

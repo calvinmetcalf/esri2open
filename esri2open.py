@@ -277,7 +277,21 @@ def prepareSqlite(out,featureClass,fileType,includeGeometry):
         fieldNames.append("GEOMETRY blob")
     conn=Connection(out.name)
     c=conn.cursor()
+    c.execute("""CREATE TABLE spatial_ref_sys (
+             srid INTEGER UNIQUE,
+             auth_name TEXT,
+             auth_srid INTEGER,
+             srtext TEXT  )""")
+    c.execute("insert into spatial_ref_sys(srid ,auth_name ,auth_srid ,srtext) values(?,?,?,?)",(4326, u'EPSG', 4326, u'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]]'))
     name = path.splitext(path.split(out.name)[1])[0]
+    c.execute("""CREATE TABLE geometry_columns (
+            f_table_name TEXT, 
+            f_geometry_column TEXT, 
+            geometry_type INTEGER, 
+            coord_dimension INTEGER, 
+            srid INTEGER,
+            geometry_format TEXT )""")
+    c.execute("""insert into geometry_columns( f_table_name, f_geometry_column, geometry_type, coord_dimension, srid,geometry_format) values(?,?,?,?,?,?)""",(name,"GEOMETRY",0,2,4326))
     c.execute("create table {0}({1})".format(name,", ".join(fieldNames)))
     return [[conn,c],[name,c,conn]]
 def prepareFile(out,featureClass,fileType,includeGeometry):
@@ -355,13 +369,13 @@ def writeFile(outFile,featureClass,fileType,includeGeometry, first=True):
             elif fileType=="sqlite":
                 if includeGeometry:
                     fc["properties"]["GEOMETRY"]=makeWKB(fc["geometry"])
-                    keys = fc["properties"].keys()
-                    values = fc["properties"].values()
-                    [name,c,conn]=outFile
-                    c.execute("""insert into {0}({1})
-                    values({2})
-                    """.format(name,", ".join(keys),makeInter(len(values))),values)
-                    conn.commit()
+                keys = fc["properties"].keys()
+                values = fc["properties"].values()
+                [name,c,conn]=outFile
+                c.execute("""insert into {0}({1})
+                values({2})
+                """.format(name,", ".join(keys),makeInter(len(values))),values)
+                conn.commit()
     except Exception as e:
         AddMessage("OH SNAP! " + str(e))
     finally:
