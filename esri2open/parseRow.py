@@ -77,6 +77,7 @@ class parse:
         #more messages
         self.status.update()
         fc=parseProp(row,self.fields, self.shp)
+        fc["_id"]=row.getValue(self.oid)
         if self.parseGeo:
             try:
                 fc["geometry"]=self.parseGeo(row.getValue(self.shp))
